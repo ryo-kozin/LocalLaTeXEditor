@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Local LaTeX Editor</title>
+
+<!-- KaTeX -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
+<style>
+body {
+  margin: 0;
+  display: flex;
+  height: 100vh;
+  background: #0f172a;
+  color: #e5e7eb;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+textarea {
+  width: 50%;
+  padding: 20px;
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 16px;
+  background: #020617;
+  color: #e5e7eb;
+}
+
+#right {
+  width: 50%;
+  display: flex;
+  flex-direction: column;
+}
+
+#toolbar {
+  padding: 10px;
+  background: #020617;
+  border-bottom: 1px solid #1e293b;
+}
+
+button {
+  padding: 6px 12px;
+  background: #1e293b;
+  border: none;
+  color: white;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+button:hover {
+  background: #334155;
+}
+
+#preview {
+  flex: 1;
+  padding: 20px;
+  overflow: auto;
+}
+</style>
+</head>
+
+<body>
+
+<textarea id="input">
+f'(x) = \lim_{h \to 0} \frac{f(x+h) - f(x)}{h}
+</textarea>
+
+<div id="right">
+  <div id="toolbar">
+    <button onclick="copyLatex()">Copy LaTeX</button>
+  </div>
+  <div id="preview"></div>
+</div>
+
+<script>
+const input = document.getElementById("input");
+const preview = document.getElementById("preview");
+
+// $$ 自動補完
+function wrapLatex(text) {
+  text = text.trim();
+  if (!text.startsWith("$")) {
+    return "$$" + text + "$$";
+  }
+  return text;
+}
+
+// レンダリング
+function render() {
+  let value = wrapLatex(input.value);
+
+  preview.innerHTML = value;
+
+  try {
+    renderMathInElement(preview, {
+      delimiters: [
+        {left: "$$", right: "$$", display: true},
+        {left: "$", right: "$", display: false}
+      ],
+      throwOnError: false
+    });
+  } catch (e) {
+    preview.innerHTML = "<span style='color:red'>Render Error</span>";
+  }
+}
+
+// デバウンス
+let timer;
+input.addEventListener("input", () => {
+  clearTimeout(timer);
+  timer = setTimeout(render, 50);
+});
+
+// コピーボタン
+function copyLatex() {
+  navigator.clipboard.writeText(input.value);
+}
+
+// 初期描画
+render();
+</script>
+
+</body>
+</html>
