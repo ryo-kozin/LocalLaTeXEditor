@@ -2,125 +2,412 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Local LaTeX Editor</title>
+<title>LaTeX → Docs コピーツール</title>
 
 <!-- KaTeX -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+
+<!-- Markdown -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<!-- html2canvas -->
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 
 <style>
+* { box-sizing: border-box; margin: 0; }
+
 body {
-  margin: 0;
   display: flex;
   height: 100vh;
   background: #0f172a;
-  color: #e5e7eb;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 textarea {
   width: 50%;
-  padding: 20px;
-  border: none;
-  outline: none;
-  resize: none;
-  font-size: 16px;
+  padding: 24px;
   background: #020617;
-  color: #e5e7eb;
+  color: #f1f5f9;
+  border: none;
+  resize: none;
+  font-size: 14px;
+  line-height: 1.7;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  outline: none;
 }
 
 #right {
   width: 50%;
   display: flex;
   flex-direction: column;
+  border-left: 1px solid #1e293b;
 }
 
 #toolbar {
-  padding: 10px;
+  padding: 12px 16px;
   background: #020617;
   border-bottom: 1px solid #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 button {
-  padding: 6px 12px;
+  padding: 8px 16px;
   background: #1e293b;
-  border: none;
-  color: white;
+  border: 1px solid #334155;
+  color: #e2e8f0;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 8px;
+  font-size: 13px;
+  transition: all 0.15s;
 }
 
-button:hover {
-  background: #334155;
+button:hover { background: #334155; }
+
+button.primary {
+  background: #2563eb;
+  border-color: #3b82f6;
+}
+button.primary:hover { background: #1d4ed8; }
+
+#status {
+  margin-left: auto;
+  font-size: 12px;
+  color: #64748b;
 }
 
 #preview {
   flex: 1;
-  padding: 20px;
   overflow: auto;
+  padding: 24px;
+  background: #ffffff;
+  color: #1e293b;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+#preview h1, #preview h2, #preview h3 {
+  color: #0f172a;
+  margin: 16px 0 8px;
+}
+
+#preview p { margin: 8px 0; }
+#preview ul, #preview ol { margin: 8px 0 8px 20px; }
+
+.math-wrap {
+  position: relative;
+  display: inline-block;
+}
+.math-wrap[data-display="1"] {
+  display: block;
+}
+
+.math { display: inline-block; }
+.katex-display { margin: 12px 0; }
+
+/* 個別コピーボタン */
+.math-copy {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin: 0;
+  background: rgba(37,99,235,0.85);
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 11px;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 10;
+}
+.math-wrap:hover .math-copy {
+  opacity: 1;
+}
+.math-copy:hover {
+  background: rgba(29,78,216,1) !important;
+}
+.math-copy.copied {
+  background: rgba(34,197,94,0.9) !important;
+  opacity: 1;
+}
+
+#toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: #22c55e;
+  color: #fff;
+  padding: 12px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  transform: translateY(80px);
+  opacity: 0;
+  transition: all 0.3s ease;
+  pointer-events: none;
+  z-index: 9999;
+}
+#toast.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+#toast.error {
+  background: #ef4444;
 }
 </style>
 </head>
 
 <body>
 
-<textarea id="input">
-f'(x) = \lim_{h \to 0} \frac{f(x+h) - f(x)}{h}
-</textarea>
+<textarea id="input" placeholder="Geminiの出力をここに貼り付け...&#10;&#10;例:&#10;二次方程式 $ax^2 + bx + c = 0$ の解は&#10;$$x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$$"></textarea>
 
 <div id="right">
   <div id="toolbar">
-    <button onclick="copyLatex()">Copy LaTeX</button>
+    <button class="primary" onclick="copyForDocs()">Copy All for Docs</button>
+    <span id="status"></span>
   </div>
   <div id="preview"></div>
 </div>
+<div id="toast"></div>
 
 <script>
 const input = document.getElementById("input");
 const preview = document.getElementById("preview");
+const status = document.getElementById("status");
+const toast = document.getElementById("toast");
 
-// $$ 自動補完
-function wrapLatex(text) {
-  text = text.trim();
-  if (!text.startsWith("$")) {
-    return "$$" + text + "$$";
-  }
-  return text;
+function setStatus(msg, duration = 3000) {
+  status.textContent = msg;
+  if (duration) setTimeout(() => status.textContent = "", duration);
 }
 
-// レンダリング
-function render() {
-  let value = wrapLatex(input.value);
+function showToast(msg, isError = false) {
+  toast.textContent = msg;
+  toast.className = isError ? "error" : "";
+  void toast.offsetWidth;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 2500);
+}
 
-  preview.innerHTML = value;
+// LaTeX保護してMarkdown変換
+function protectLatex(text) {
+  const matches = [];
+  const regex = /\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$(?:[^\$\n\\]|\\.)+\$|\\\((?:[^\\]|\\.)*?\\\)/g;
+  const replaced = text.replace(regex, m => {
+    matches.push(m);
+    return `@@MATH${matches.length - 1}@@`;
+  });
+  return { replaced, matches };
+}
+
+// KaTeXでレンダリング（.math-wrapで囲んでコピーボタン付与）
+function renderLatex(html, matches) {
+  return html.replace(/@@MATH(\d+)@@/g, (_, i) => {
+    const raw = matches[i];
+    const isDisplay = raw.startsWith("$$") || raw.startsWith("\\[");
+    let latex;
+    if (raw.startsWith("$$")) latex = raw.slice(2, -2).trim();
+    else if (raw.startsWith("\\[")) latex = raw.slice(2, -2).trim();
+    else if (raw.startsWith("\\(")) latex = raw.slice(2, -2).trim();
+    else latex = raw.slice(1, -1).trim();
+
+    const span = document.createElement("span");
+    span.className = "math";
+    if (isDisplay) span.dataset.display = "1";
+
+    try {
+      katex.render(latex, span, {
+        displayMode: isDisplay,
+        throwOnError: false,
+        output: "html"
+      });
+    } catch {
+      span.textContent = raw;
+    }
+
+    // ラッパーで囲んでコピーボタン追加
+    const wrap = document.createElement("span");
+    wrap.className = "math-wrap";
+    if (isDisplay) wrap.dataset.display = "1";
+    wrap.appendChild(span);
+
+    const btn = document.createElement("button");
+    btn.className = "math-copy";
+    btn.textContent = "\u2398"; // copy icon
+    btn.title = "この数式を画像コピー";
+    btn.onclick = function(e) { e.stopPropagation(); copySingleMath(span, btn); };
+    wrap.appendChild(btn);
+
+    return wrap.outerHTML;
+  });
+}
+
+function render() {
+  const { replaced, matches } = protectLatex(input.value);
+  let html = marked.parse(replaced);
+  html = renderLatex(html, matches);
+  preview.innerHTML = html;
+}
+
+// html2canvasで数式要素をPNG化
+async function mathToPng(el) {
+  const container = document.createElement("div");
+  container.style.cssText = `
+    position: fixed; top: -9999px; left: -9999px;
+    background: #ffffff; color: #000000;
+    padding: 6px 8px;
+    font-size: 16px; line-height: 1.6;
+    display: inline-block;
+  `;
+
+  const clone = el.cloneNode(true);
+  clone.style.display = "inline-block";
+  clone.querySelectorAll(".katex-mathml").forEach(m => m.remove());
+  // コピーボタンを除去
+  clone.querySelectorAll(".math-copy").forEach(m => m.remove());
+  container.appendChild(clone);
+  document.body.appendChild(container);
+
+  await new Promise(r => setTimeout(r, 50));
 
   try {
-    renderMathInElement(preview, {
-      delimiters: [
-        {left: "$$", right: "$$", display: true},
-        {left: "$", right: "$", display: false}
-      ],
-      throwOnError: false
+    const canvas = await html2canvas(container, {
+      backgroundColor: "#ffffff",
+      scale: 3,
+      logging: false,
+      useCORS: true,
     });
-  } catch (e) {
-    preview.innerHTML = "<span style='color:red'>Render Error</span>";
+
+    const dataUrl = canvas.toDataURL("image/png");
+    const w = container.offsetWidth;
+    const h = container.offsetHeight;
+    return { dataUrl, w, h };
+  } finally {
+    document.body.removeChild(container);
   }
 }
 
-// デバウンス
-let timer;
-input.addEventListener("input", () => {
-  clearTimeout(timer);
-  timer = setTimeout(render, 50);
-});
-
-// コピーボタン
-function copyLatex() {
-  navigator.clipboard.writeText(input.value);
+// 個別数式コピー
+async function copySingleMath(mathEl, btn) {
+  btn.textContent = "...";
+  try {
+    const { dataUrl } = await mathToPng(mathEl);
+    // data URL → blob
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    await navigator.clipboard.write([
+      new ClipboardItem({ "image/png": blob })
+    ]);
+    btn.textContent = "\u2713";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = "\u2398";
+      btn.classList.remove("copied");
+    }, 1500);
+  } catch (e) {
+    console.error(e);
+    btn.textContent = "\u2718";
+    setTimeout(() => btn.textContent = "\u2398", 1500);
+  }
 }
 
-// 初期描画
+// Docs用：全体コピー
+async function copyForDocs() {
+  setStatus("変換中...", 0);
+
+  const mathEls = [...preview.querySelectorAll(".math")];
+  if (mathEls.length === 0) {
+    await navigator.clipboard.writeText(preview.innerText);
+    setStatus("コピー完了（数式なし）");
+    return;
+  }
+
+  const results = [];
+  for (let i = 0; i < mathEls.length; i++) {
+    setStatus(`変換中... (${i + 1}/${mathEls.length})`, 0);
+    try {
+      const result = await mathToPng(mathEls[i]);
+      const isDisplay = mathEls[i].dataset.display === "1";
+      results.push({ ...result, isDisplay });
+    } catch (e) {
+      console.error("Math image error:", e);
+      results.push(null);
+    }
+  }
+
+  // クローンから .math-copy と .math-wrap を整理して数式をimg置換
+  const clone = preview.cloneNode(true);
+  // コピーボタンを全削除
+  clone.querySelectorAll(".math-copy").forEach(b => b.remove());
+  const cloneMathEls = clone.querySelectorAll(".math");
+
+  cloneMathEls.forEach((cloneEl, idx) => {
+    const result = results[idx];
+    if (!result) return;
+
+    const img = document.createElement("img");
+    img.src = result.dataUrl;
+
+    if (result.isDisplay) {
+      const maxW = 420;
+      const displayW = Math.min(result.w, maxW);
+      const displayH = Math.round(result.h * (displayW / result.w));
+      img.setAttribute("width", displayW);
+      img.setAttribute("height", displayH);
+      img.style.display = "block";
+      img.style.margin = "8px auto";
+    } else {
+      const targetH = 22;
+      const targetW = Math.round(result.w * (targetH / result.h));
+      img.setAttribute("width", targetW);
+      img.setAttribute("height", targetH);
+      img.style.display = "inline";
+      img.style.verticalAlign = "middle";
+    }
+
+    // .math-wrap があればそれごと置換
+    const wrap = cloneEl.closest(".math-wrap");
+    if (wrap) {
+      wrap.replaceWith(img);
+    } else {
+      cloneEl.replaceWith(img);
+    }
+  });
+
+  try {
+    await navigator.clipboard.write([
+      new ClipboardItem({
+        "text/html": new Blob([clone.innerHTML], { type: "text/html" }),
+        "text/plain": new Blob([clone.innerText], { type: "text/plain" })
+      })
+    ]);
+
+    setStatus("コピー完了");
+    showToast("Copied! Docsに貼り付けてください");
+  } catch (e) {
+    console.error("Clipboard error:", e);
+    setStatus("コピー失敗");
+    showToast("コピー失敗: " + e.message, true);
+  }
+}
+
+// リアルタイムレンダリング
+let t;
+input.addEventListener("input", () => {
+  clearTimeout(t);
+  t = setTimeout(render, 150);
+});
+
 render();
 </script>
 
